@@ -50,12 +50,13 @@ public:
         {
             std::lock_guard<std::mutex> lock(_queueMutex);
             _queue.emplace(job);
+            // scoped lock        
+            {            
+                std::lock_guard<std::mutex> lock(_jobsLeftMutex);            
+                ++_jobsLeft;        
+            }            
         }
-        // scoped lock
-        {
-            std::lock_guard<std::mutex> lock(_jobsLeftMutex);
-            ++_jobsLeft;
-        }
+
         _jobAvailableVar.notify_one();
     }
 
