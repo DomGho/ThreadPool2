@@ -106,11 +106,13 @@ public:
                           });
         }
     }
+
     /**
      * Get the vector of threads themselves, in order to set the 
      * affinity, or anything else you might want to do
      */
-    std::vector<std::thread> &get_threads(){
+    std::vector<std::thread>& GetThreads()
+    {
         return _threads;
     }
 
