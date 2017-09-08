@@ -5,7 +5,14 @@
 #include <mutex>
 #include <functional>
 #include <condition_variable>
+
+#define CONTINUOUS_JOBS_MEMORY 0
+
+#if CONTINUOUS_JOBS_MEMORY
+#include <vector>
+#else
 #include <queue>
+#endif
 
 /**
  *  Simple ThreadPool that creates `threadCount` threads upon its creation,
@@ -16,19 +23,29 @@
 class ThreadPool
 {
 public:
-    explicit ThreadPool(int threadCount) :
+#if CONTINUOUS_JOBS_MEMORY
+    explicit ThreadPool(const unsigned int threadCount, const unsigned int jobsReserveCount = 0) :
+#else
+    explicit ThreadPool(const unsigned int threadCount) :
+#endif
         _jobsLeft(0),
         _bailout(false)
     {
-        _threads = std::vector<std::thread>(threadCount);
-
-        for (int index = 0; index < threadCount; ++index)
+        _threads.reserve(threadCount);
+        for (unsigned int index = 0; index < threadCount; ++index)
         {
-            _threads[index] = std::move(std::thread([this]
-                {
-                    this->Task();
-                }));
+            _threads.push_back(std::thread([this]
+            {
+                this->Task();
+            }));
         }
+
+#if CONTINUOUS_JOBS_MEMORY
+        if (jobsReserveCount > 0)
+        {
+            _queue.reserve(jobsReserveCount);
+        }
+#endif
     }
 
     /**
@@ -44,12 +61,16 @@ public:
      *  a thread is woken up to take the job. If all threads are busy,
      *  the job is added to the end of the queue.
      */
-    void AddJob(std::function<void(void)> job)
+    void AddJob(const std::function<void()>& job)
     {
         // scoped lock
         {
             std::lock_guard<std::mutex> lock(_queueMutex);
-            _queue.emplace(job);
+#if CONTINUOUS_JOBS_MEMORY
+            _queue.push_back(job);
+#else
+            _queue.push(job);
+#endif
         }
         // scoped lock
         {
@@ -81,11 +102,11 @@ public:
         // waiting for a new job
         _jobAvailableVar.notify_all();
 
-        for (auto& x : _threads)
+        for (std::thread& thread : _threads)
         {
-            if (x.joinable())
+            if (thread.joinable())
             {
-                x.join();
+                thread.join();
             }
         }
     }
@@ -101,15 +122,15 @@ public:
         if (_jobsLeft > 0)
         {
             _waitVar.wait(lock, [this]
-                          {
-                              return _jobsLeft == 0;
-                          });
+            {
+                return _jobsLeft == 0;
+            });
         }
     }
 
     /**
-     * Get the vector of threads themselves, in order to set the 
-     * affinity, or anything else you might want to do
+     *  Get the vector of threads themselves, in order to set the
+     *  affinity, or anything else you might want to do
      */
     std::vector<std::thread>& GetThreads()
     {
@@ -125,7 +146,7 @@ private:
     {
         while (true)
         {
-            std::function<void(void)> job;
+            std::function<void()> job;
 
             // scoped lock
             {
@@ -138,9 +159,9 @@ private:
 
                 // Wait for a job if we don't have any.
                 _jobAvailableVar.wait(lock, [this]
-                                      {
-                                          return _queue.size() > 0 || _bailout;
-                                      });
+                {
+                    return !_queue.empty() || _bailout;
+                });
 
                 if (_bailout)
                 {
@@ -148,8 +169,13 @@ private:
                 }
 
                 // Get job from the queue
+#if CONTINUOUS_JOBS_MEMORY
+                job = _queue.back();
+                _queue.pop_back();
+#else
                 job = _queue.front();
                 _queue.pop();
+#endif
             }
 
             job();
@@ -165,7 +191,11 @@ private:
     }
 
     std::vector<std::thread> _threads;
-    std::queue<std::function<void(void)>> _queue;
+#if CONTINUOUS_JOBS_MEMORY
+    std::vector<std::function<void()>> _queue;
+#else
+    std::queue<std::function<void()>> _queue;
+#endif
 
     int _jobsLeft;
     bool _bailout;
@@ -175,4 +205,5 @@ private:
     std::mutex _queueMutex;
 };
 
+#undef CONTINUOUS_JOBS_MEMORY
 #endif //CONCURRENT_THREADPOOL_H
