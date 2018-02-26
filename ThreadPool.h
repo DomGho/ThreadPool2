@@ -37,17 +37,14 @@ public:
         _threads.reserve(threadCount);
         for (unsigned int index = 0; index < threadCount; ++index)
         {
-            _threads.push_back(std::thread([this]
+            _threads.push_back(std::thread([&]
             {
-                this->Task();
+                Task();
             }));
         }
 
 #if CONTIGUOUS_JOBS_MEMORY
-        if (jobsReserveCount > 0)
-        {
-            _queue.reserve(jobsReserveCount);
-        }
+        _queue.reserve(jobsReserveCount);
 #endif
     }
 
@@ -64,7 +61,8 @@ public:
      *  a thread is woken up to take the job. If all threads are busy,
      *  the job is added to the end of the queue.
      */
-    void AddJob(const std::function<void()>& job)
+    template <typename T>
+    void AddJob(const T& job)
     {
         // scoped lock
         {
@@ -124,7 +122,7 @@ public:
         std::unique_lock<std::mutex> lock(_jobsLeftMutex);
         if (_jobsLeft > 0)
         {
-            _waitVar.wait(lock, [this]
+            _waitVar.wait(lock, [&]
             {
                 return _jobsLeft == 0;
             });
@@ -138,6 +136,43 @@ public:
     std::vector<std::thread>& GetThreads()
     {
         return _threads;
+    }
+
+    /**
+     *  Return the next job in the queue to run it in the main thread
+     */
+    std::function<void()> GetNextJob()
+    {
+        std::function<void()> job;
+
+        // scoped lock
+        {
+            std::lock_guard<std::mutex> lock(_queueMutex);
+
+            if (_bailout || _queue.empty())
+            {
+                return nullptr;
+            }
+
+            // Get job from the queue
+#if CONTIGUOUS_JOBS_MEMORY
+            job = _queue.back();
+            _queue.pop_back();
+#else
+            job = _queue.front();
+            _queue.pop();
+#endif
+        }
+
+        // scoped lock
+        {
+            std::lock_guard<std::mutex> lock(_jobsLeftMutex);
+            --_jobsLeft;
+        }
+
+        _waitVar.notify_one();
+
+        return job;
     }
 
 private:
@@ -161,7 +196,7 @@ private:
                 }
 
                 // Wait for a job if we don't have any.
-                _jobAvailableVar.wait(lock, [this]
+                _jobAvailableVar.wait(lock, [&]
                 {
                     return !_queue.empty() || _bailout;
                 });
