@@ -99,6 +99,12 @@ public:
             _bailout = true;
         }
 
+        // add empty job to wake up threads
+        AddJob([]
+        {
+            return;
+        });
+
         // note that we're done, and wake up any thread that's
         // waiting for a new job
         _jobAvailableVar.notify_all();
@@ -149,7 +155,7 @@ public:
         {
             std::lock_guard<std::mutex> lock(_queueMutex);
 
-            if (_bailout || _queue.empty())
+            if (_queue.empty())
             {
                 return nullptr;
             }
@@ -190,15 +196,10 @@ private:
             {
                 std::unique_lock<std::mutex> lock(_queueMutex);
 
-                if (_bailout)
-                {
-                    return;
-                }
-
                 // Wait for a job if we don't have any.
                 _jobAvailableVar.wait(lock, [&]
                 {
-                    return !_queue.empty() || _bailout;
+                    return !_queue.empty();
                 });
 
                 if (_bailout)
