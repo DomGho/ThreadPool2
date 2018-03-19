@@ -27,19 +27,56 @@ class ThreadPool
 {
 public:
 #if CONTIGUOUS_JOBS_MEMORY
-    explicit ThreadPool(const unsigned int threadCount, const unsigned int jobsReserveCount = 0) :
+    explicit ThreadPool(const int threadCount, const int jobsReserveCount = 0) :
 #else
-    explicit ThreadPool(const unsigned int threadCount) :
+    explicit ThreadPool(const int threadCount) :
 #endif
         _jobsLeft(0),
-        _bailout(false)
+        _isRunning(true)
     {
         _threads.reserve(threadCount);
-        for (unsigned int index = 0; index < threadCount; ++index)
+        for (int index = 0; index < threadCount; ++index)
         {
             _threads.push_back(std::thread([&]
             {
-                Task();
+                /**
+                *  Take the next job in the queue and run it.
+                *  Notify the main thread that a job has completed.
+                */
+                while (_isRunning)
+                {
+                    std::function<void()> job;
+
+                    // scoped lock
+                    {
+                        std::unique_lock<std::mutex> lock(_queueMutex);
+
+                        // Wait for a job if we don't have any.
+                        _jobAvailableVar.wait(lock, [&]
+                        {
+                            return !_queue.empty();
+                        });
+
+                        // Get job from the queue
+#if CONTIGUOUS_JOBS_MEMORY
+                        job = _queue.back();
+                        _queue.pop_back();
+#else
+                        job = _queue.front();
+                        _queue.pop();
+#endif
+                    }
+
+                    job();
+
+                    // scoped lock
+                    {
+                        std::lock_guard<std::mutex> lock(_jobsLeftMutex);
+                        --_jobsLeft;
+                    }
+
+                    _waitVar.notify_one();
+                }
             }));
         }
 
@@ -89,21 +126,20 @@ public:
      */
     void JoinAll()
     {
-        // scoped lock
-        {
-            std::lock_guard<std::mutex> lock(_queueMutex);
-            if (_bailout)
-            {
-                return;
-            }
-            _bailout = true;
-        }
-
-        // add empty job to wake up threads
-        AddJob([]
+        if (!_isRunning)
         {
             return;
-        });
+        }
+        _isRunning = false;
+
+        // add empty jobs to wake up threads
+        const int threadCount = _threads.size();
+        for (int index = 0; index < threadCount; ++index)
+        {
+            AddJob([]
+            {
+            });
+        }
 
         // note that we're done, and wake up any thread that's
         // waiting for a new job
@@ -182,53 +218,6 @@ public:
     }
 
 private:
-    /**
-     *  Take the next job in the queue and run it.
-     *  Notify the main thread that a job has completed.
-     */
-    void Task()
-    {
-        while (true)
-        {
-            std::function<void()> job;
-
-            // scoped lock
-            {
-                std::unique_lock<std::mutex> lock(_queueMutex);
-
-                // Wait for a job if we don't have any.
-                _jobAvailableVar.wait(lock, [&]
-                {
-                    return !_queue.empty();
-                });
-
-                if (_bailout)
-                {
-                    return;
-                }
-
-                // Get job from the queue
-#if CONTIGUOUS_JOBS_MEMORY
-                job = _queue.back();
-                _queue.pop_back();
-#else
-                job = _queue.front();
-                _queue.pop();
-#endif
-            }
-
-            job();
-
-            // scoped lock
-            {
-                std::lock_guard<std::mutex> lock(_jobsLeftMutex);
-                --_jobsLeft;
-            }
-
-            _waitVar.notify_one();
-        }
-    }
-
     std::vector<std::thread> _threads;
 #if CONTIGUOUS_JOBS_MEMORY
     std::vector<std::function<void()>> _queue;
@@ -237,7 +226,7 @@ private:
 #endif
 
     int _jobsLeft;
-    bool _bailout;
+    bool _isRunning;
     std::condition_variable _jobAvailableVar;
     std::condition_variable _waitVar;
     std::mutex _jobsLeftMutex;
