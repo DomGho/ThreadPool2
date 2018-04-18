@@ -1,0 +1,9 @@
+Please delete this file later.
+
+I couldn't create an issue in your fork, so I am creating this file.
+
+The issue:
+You shouldn't use variables starting by underscore since they are reserved by the standard library. I would recommend you to use this->variableName or an alternative nomenclature.
+
+More info here:
+https://stackoverflow.com/questions/228783/what-are-the-rules-about-using-an-underscore-in-a-c-identifier
