@@ -37,7 +37,7 @@ public:
         _threads.reserve(threadCount);
         for (int index = 0; index < threadCount; ++index)
         {
-            _threads.push_back(std::thread([&]
+            _threads.emplace_back([&]
             {
                 /**
                 *  Take the next job in the queue and run it.
@@ -77,7 +77,7 @@ public:
 
                     _waitVar.notify_one();
                 }
-            }));
+            });
         }
 
 #if CONTIGUOUS_JOBS_MEMORY
