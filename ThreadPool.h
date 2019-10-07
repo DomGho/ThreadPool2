@@ -13,7 +13,7 @@
  *
  *  This class requires a number of c++11 features be present in your compiler.
  */
-class ThreadPool
+class ThreadPool final
 {
 public:
     explicit ThreadPool(const int threadCount) :
@@ -29,7 +29,7 @@ public:
                 *  Take the next job in the queue and run it.
                 *  Notify the main thread that a job has completed.
                 */
-                while (_isRunning)
+                do
                 {
                     std::function<void()> job;
 
@@ -58,6 +58,7 @@ public:
 
                     _waitVar.notify_one();
                 }
+                while (_isRunning)
             });
         }
     }
