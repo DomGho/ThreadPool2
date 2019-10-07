@@ -75,8 +75,7 @@ public:
      *  a thread is woken up to take the job. If all threads are busy,
      *  the job is added to the end of the queue.
      */
-    template <typename T>
-    void AddJob(const T& job)
+    void AddJob(const std::function<void()>& job)
     {
         // scoped lock
         {
