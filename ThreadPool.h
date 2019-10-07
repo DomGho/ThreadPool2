@@ -5,17 +5,7 @@
 #include <mutex>
 #include <functional>
 #include <condition_variable>
-
-/**
- *  Set to 1 to use vector instead of queue for jobs container to improve
- *  memory locality however changes job order from FIFO to LIFO.
- */
-#define CONTIGUOUS_JOBS_MEMORY 0
-#if CONTIGUOUS_JOBS_MEMORY
-#include <vector>
-#else
 #include <queue>
-#endif
 
 /**
  *  Simple ThreadPool that creates `threadCount` threads upon its creation,
@@ -26,11 +16,7 @@
 class ThreadPool
 {
 public:
-#if CONTIGUOUS_JOBS_MEMORY
-    explicit ThreadPool(const int threadCount, const int jobsReserveCount = 0) :
-#else
     explicit ThreadPool(const int threadCount) :
-#endif
         _jobsLeft(0),
         _isRunning(true)
     {
@@ -58,13 +44,8 @@ public:
                         });
 
                         // Get job from the queue
-#if CONTIGUOUS_JOBS_MEMORY
-                        job = _queue.back();
-                        _queue.pop_back();
-#else
                         job = _queue.front();
                         _queue.pop();
-#endif
                     }
 
                     job();
@@ -79,10 +60,6 @@ public:
                 }
             });
         }
-
-#if CONTIGUOUS_JOBS_MEMORY
-        _queue.reserve(jobsReserveCount);
-#endif
     }
 
     /**
@@ -104,11 +81,7 @@ public:
         // scoped lock
         {
             std::lock_guard<std::mutex> lock(_queueMutex);
-#if CONTIGUOUS_JOBS_MEMORY
-            _queue.push_back(job);
-#else
             _queue.push(job);
-#endif
         }
         // scoped lock
         {
@@ -197,13 +170,8 @@ public:
             }
 
             // Get job from the queue
-#if CONTIGUOUS_JOBS_MEMORY
-            job = _queue.back();
-            _queue.pop_back();
-#else
             job = _queue.front();
             _queue.pop();
-#endif
         }
 
         // scoped lock
@@ -219,11 +187,7 @@ public:
 
 private:
     std::vector<std::thread> _threads;
-#if CONTIGUOUS_JOBS_MEMORY
-    std::vector<std::function<void()>> _queue;
-#else
     std::queue<std::function<void()>> _queue;
-#endif
 
     int _jobsLeft;
     bool _isRunning;
