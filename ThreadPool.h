@@ -6,6 +6,7 @@
 #include <functional>
 #include <condition_variable>
 #include <queue>
+#include <vector>
 
 /**
  *  Simple ThreadPool that creates `threadCount` threads upon its creation,
@@ -58,7 +59,7 @@ public:
 
                     _waitVar.notify_one();
                 }
-                while (_isRunning)
+                while (_isRunning);
             });
         }
     }
@@ -197,5 +198,4 @@ private:
     std::mutex _queueMutex;
 };
 
-#undef CONTIGUOUS_JOBS_MEMORY
 #endif //CONCURRENT_THREADPOOL_H
