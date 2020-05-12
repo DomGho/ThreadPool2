@@ -100,30 +100,27 @@ public:
      */
     void JoinAll()
     {
-        if (!_isRunning)
+        if (_isRunning)
         {
-            return;
-        }
-        _isRunning = false;
+            _isRunning = false;
 
-        // add empty jobs to wake up threads
-        const int threadCount = _threads.size();
-        for (int index = 0; index < threadCount; ++index)
-        {
-            AddJob([]
+            // add empty jobs to wake up threads
+            const int threadCount = _threads.size();
+            for (int index = 0; index < threadCount; ++index)
             {
-            });
-        }
+                AddJob([] {});
+            }
 
-        // note that we're done, and wake up any thread that's
-        // waiting for a new job
-        _jobAvailableVar.notify_all();
+            // note that we're done, and wake up any thread that's
+            // waiting for a new job
+            _jobAvailableVar.notify_all();
 
-        for (std::thread& thread : _threads)
-        {
-            if (thread.joinable())
+            for (std::thread& thread : _threads)
             {
-                thread.join();
+                if (thread.joinable())
+                {
+                    thread.join();
+                }
             }
         }
     }
@@ -135,9 +132,9 @@ public:
      */
     void WaitAll()
     {
-        std::unique_lock<std::mutex> lock(_jobsLeftMutex);
         if (_jobsLeft > 0)
         {
+            std::unique_lock<std::mutex> lock(_jobsLeftMutex);
             _waitVar.wait(lock, [&]
             {
                 return _jobsLeft == 0;
