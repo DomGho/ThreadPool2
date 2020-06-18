@@ -132,9 +132,9 @@ public:
      */
     void WaitAll()
     {
+        std::unique_lock<std::mutex> lock(_jobsLeftMutex);
         if (_jobsLeft > 0)
         {
-            std::unique_lock<std::mutex> lock(_jobsLeftMutex);
             _waitVar.wait(lock, [&]
             {
                 return _jobsLeft == 0;
