@@ -17,7 +17,7 @@
 class ThreadPool final
 {
 public:
-    explicit ThreadPool(const int threadCount) :
+    explicit ThreadPool(int threadCount) :
         _jobsLeft(0),
         _isRunning(true)
     {
@@ -39,7 +39,7 @@ public:
                         std::unique_lock<std::mutex> lock(_queueMutex);
 
                         // Wait for a job if we don't have any.
-                        _jobAvailableVar.wait(lock, [&]
+                        _jobsQueuedCondition.wait(lock, [&]
                         {
                             return !_queue.empty();
                         });
@@ -57,7 +57,7 @@ public:
                         --_jobsLeft;
                     }
 
-                    _waitVar.notify_one();
+                    _jobsDoneCondition.notify_one();
                 }
                 while (_isRunning);
             });
@@ -89,7 +89,7 @@ public:
             std::lock_guard<std::mutex> lock(_jobsLeftMutex);
             ++_jobsLeft;
         }
-        _jobAvailableVar.notify_one();
+        _jobsQueuedCondition.notify_one();
     }
 
     /**
@@ -113,7 +113,7 @@ public:
 
             // note that we're done, and wake up any thread that's
             // waiting for a new job
-            _jobAvailableVar.notify_all();
+            _jobsQueuedCondition.notify_all();
 
             for (std::thread& thread : _threads)
             {
@@ -133,13 +133,10 @@ public:
     void WaitAll()
     {
         std::unique_lock<std::mutex> lock(_jobsLeftMutex);
-        if (_jobsLeft > 0)
+        _jobsDoneCondition.wait(lock, [&]
         {
-            _waitVar.wait(lock, [&]
-            {
-                return _jobsLeft == 0;
-            });
-        }
+            return _jobsLeft == 0;
+        });
     }
 
     /**
@@ -152,9 +149,9 @@ public:
     }
 
     /**
-     *  Return the next job in the queue to run it in the main thread
+     *  Process the next job in the queue to run it in the calling thread
      */
-    std::function<void()> GetNextJob()
+    bool ExecuteNextJob()
     {
         std::function<void()> job;
 
@@ -164,7 +161,7 @@ public:
 
             if (_queue.empty())
             {
-                return nullptr;
+                return false;
             }
 
             // Get job from the queue
@@ -172,15 +169,17 @@ public:
             _queue.pop();
         }
 
+        job();
+
         // scoped lock
         {
             std::lock_guard<std::mutex> lock(_jobsLeftMutex);
             --_jobsLeft;
         }
 
-        _waitVar.notify_one();
+        _jobsDoneCondition.notify_one();
 
-        return job;
+        return true;
     }
 
 private:
@@ -189,8 +188,8 @@ private:
 
     int _jobsLeft;
     bool _isRunning;
-    std::condition_variable _jobAvailableVar;
-    std::condition_variable _waitVar;
+    std::condition_variable _jobsQueuedCondition;
+    std::condition_variable _jobsDoneCondition;
     std::mutex _jobsLeftMutex;
     std::mutex _queueMutex;
 };
